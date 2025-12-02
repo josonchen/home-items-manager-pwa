@@ -203,7 +203,7 @@ function handleModalConfirm() {
   if (currentModalType === 'room') {
     if (!recentRooms.includes(value)) {
       recentRooms.unshift(value);
-      recentRooms = recentRooms.slice(0, 20); // 限制最多20个
+      recentRooms = recentRooms.slice(0, 20);
       changed = true;
     }
   } else if (currentModalType === 'container') {
@@ -214,8 +214,8 @@ function handleModalConfirm() {
     }
   }
   if (changed) {
-    saveData();           // 保存到 localStorage
-    renderFormOptions();  // ✅ 关键：立即刷新下拉框和 datalist
+    saveData(); // ✅ 保存到 localStorage（含 recentRooms / recentContainers）
+    // renderFormOptions() 已在 saveData() 内部调用
   }
   handleModalCancel();
 }
@@ -248,11 +248,13 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('⚠️ 数据过大（超过 4.7MB）！\n请删除部分带图物品后再保存。');
         return false;
       }
+      // ✅ 关键：四个独立 key 全部保存
       localStorage.setItem('homeItems_v5', JSON.stringify(items));
       localStorage.setItem('recentRooms', JSON.stringify(recentRooms));
-      localStorage.setItem('recentContainers', JSON.stringify(recentContainers));
+      localStorage.setItem('recentContainers', JSON.stringify(recentContainers)); // ← 必须存在
       localStorage.setItem('recentShelves', JSON.stringify(recentShelves));
-      renderFormOptions();
+      
+      renderFormOptions(); // ✅ 立即刷新 UI（下拉框 + datalist）
       renderItems();
       renderStats();
       updateStorageWarning();
@@ -282,6 +284,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (e) {
       document.getElementById('storageWarning').style.display = 'none';
+    }
+  }
+
+  function loadDataFromStorage() {
+    try {
+      const savedItems = localStorage.getItem('homeItems_v5');
+      if (savedItems) items = JSON.parse(savedItems);
+
+      const rooms = localStorage.getItem('recentRooms');
+      recentRooms = rooms ? JSON.parse(rooms) : ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
+
+      const containers = localStorage.getItem('recentContainers');
+      recentContainers = containers ? JSON.parse(containers) : ["衣柜","抽屉","工具箱","书架","冰箱"];
+
+      const shelves = localStorage.getItem('recentShelves');
+      recentShelves = shelves ? JSON.parse(shelves) : ["上层","中层","下层","第一格","第二格"];
+    } catch (e) {
+      console.warn('加载本地数据失败，使用默认值', e);
+      recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
+      recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
+      recentShelves = ["上层","中层","下层","第一格","第二格"];
     }
   }
 
@@ -512,7 +535,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const name = itemName.value.trim();
     const room = itemRoom.value.trim();
 
-    // ✅ 强化数量校验
     let quantityStr = document.getElementById('itemQuantity').value.trim();
     let quantity = 1;
     if (quantityStr !== '') {
@@ -720,21 +742,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const tabName = e.currentTarget.dataset.tab;
       switchTab(tabName);
     });
-  });
-
-  function loadDataFromStorage() {
-    try {
-      const savedItems = localStorage.getItem('homeItems_v5');
-      if (savedItems) items = JSON.parse(savedItems);
-      const rooms = localStorage.getItem('recentRooms');
-      if (rooms) recentRooms = JSON.parse(rooms);
-      const containers = localStorage.getItem('recentContainers');
-      if (containers) recentContainers = JSON.parse(containers);
-      const shelves = localStorage.getItem('recentShelves');
-      if (shelves) recentShelves = JSON.parse(shelves);
-    } catch (e) {
-      console.warn('加载本地数据失败，使用默认值', e);
-    }
   }
 
   loadDataFromStorage();
