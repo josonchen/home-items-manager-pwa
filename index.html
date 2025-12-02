@@ -14,6 +14,14 @@
     .panel { display: none; }
     #managePanel { display: block; }
     input, select, button, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+    input[type="number"] { 
+      -moz-appearance: textfield;
+    }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
     button { background: #4A90E2; color: white; border: none; cursor: pointer; }
     button.secondary { background: #666; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -48,7 +56,6 @@
     .modal-buttons button { flex: 1; padding: 8px; font-size: 14px; }
 
     canvas { display: none; }
-    /* 确保 label 可点击 */
     #photoUploadArea {
       display: block;
       text-align: center;
@@ -58,6 +65,14 @@
       margin: 15px 0;
       border-radius: 8px;
       background: #fafafa;
+    }
+    .quantity-badge {
+      background: #e3f2fd;
+      color: #1976d2;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 12px;
+      margin-left: 6px;
     }
   </style>
 </head>
@@ -75,6 +90,10 @@
   <div id="storageWarning"></div>
 
   <input type="text" id="itemName" placeholder="物品名称（必填）" />
+  
+  <!-- ✅ 新增：数量输入 -->
+  <input type="number" id="itemQuantity" min="1" value="1" placeholder="数量（默认1）" />
+
   <input type="text" id="itemCategory" placeholder="分类（如：工具、衣物、文件）" list="categoryList" />
   <datalist id="categoryList"></datalist>
 
@@ -84,9 +103,7 @@
   <button type="button" onclick="showAddModal('room')" style="margin-top:0;">➕ 新增房间</button>
 
   <input type="text" id="itemContainer" placeholder="容器（如：衣柜、工具箱）" list="containerList" />
-  <datalist id="containerList">
-    <!-- 动态填充 -->
-  </datalist>
+  <datalist id="containerList"></datalist>
   <button type="button" onclick="showAddModal('container')" style="margin-top:0;">➕ 新增容器</button>
 
   <input type="text" id="itemShelf" placeholder="层/格（如：上层、第一格）" list="shelfList" />
@@ -94,7 +111,6 @@
 
   <textarea id="itemLocation" placeholder="具体位置描述（可选）" rows="2"></textarea>
 
-  <!-- ✅ 关键修复：移除 capture 属性，确保 iOS 兼容 -->
   <label for="itemImage" id="photoUploadArea">
     👆 点击选择照片或拍照
   </label>
@@ -111,7 +127,7 @@
   <hr style="margin:20px 0;" />
   <input type="text" id="searchInput" placeholder="🔍 搜索物品名称/位置/二维码" />
   <div id="itemsList"></div>
-  <p style="text-align:right; margin-top:10px; color:#666;">共 <span id="totalItems">0</span> 项</p>
+  <p style="text-align:right; margin-top:10px; color:#666;">共 <span id="totalItems">0</span> 项 | 总计 <span id="totalQuantity">0</span> 个</p>
 
   <div style="margin-top:20px; display:flex; gap:10px;">
     <button id="exportBtn" style="flex:1;">📤 导出数据</button>
@@ -139,26 +155,19 @@
   </div>
 </div>
 
-<!-- 隐藏 canvas 用于图像处理 -->
 <canvas id="qrCanvas" style="display:none;"></canvas>
 
-<!-- 第三方库 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
 <script>
-// ======================
-// 全局变量
-// ======================
 let items = [];
 let recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
 let recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
 let recentShelves = ["上层","中层","下层","第一格","第二格"];
-let currentModalType = ''; // 'room' or 'container'
+let currentModalType = '';
 
-// ======================
-// Modal 控制
-// ======================
+// ===== Modal 控制（不变）=====
 function showAddModal(type) {
   currentModalType = type;
   document.getElementById('modalTitle').textContent = type === 'room' ? '新增房间' : '新增容器';
@@ -166,19 +175,16 @@ function showAddModal(type) {
   document.getElementById('customModal').style.display = 'flex';
   document.getElementById('modalInput').focus();
 }
-
 function handleModalCancel() {
   document.getElementById('customModal').style.display = 'none';
   currentModalType = '';
 }
-
 function handleModalConfirm() {
   const value = document.getElementById('modalInput').value.trim();
   if (!value) {
     alert('名称不能为空');
     return;
   }
-
   if (currentModalType === 'room') {
     if (!recentRooms.includes(value)) {
       recentRooms.unshift(value);
@@ -190,11 +196,8 @@ function handleModalConfirm() {
       saveData();
     }
   }
-
   handleModalCancel();
 }
-
-// 关闭 modal 按 ESC 或点击遮罩
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.getElementById('customModal').style.display === 'flex') {
     handleModalCancel();
@@ -204,20 +207,16 @@ document.getElementById('customModal').addEventListener('click', (e) => {
   if (e.target.id === 'customModal') handleModalCancel();
 });
 
-// ======================
-// DOM 加载后初始化
-// ======================
+// ===== 核心逻辑 =====
 document.addEventListener('DOMContentLoaded', () => {
-  // ----------------------
-  // 工具函数（保持不变）
-  // ----------------------
+
+  // 工具函数
   function isDataTooLarge(dataToSave, maxSizeBytes = 4_700_000) {
     try {
       const jsonString = JSON.stringify(dataToSave);
       const byteLength = new TextEncoder().encode(jsonString).length;
       return byteLength > maxSizeBytes;
     } catch (e) {
-      console.warn('序列化数据失败，保守认为过大', e);
       return true;
     }
   }
@@ -225,17 +224,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function saveData() {
     try {
       const dataToSave = { items, recentRooms, recentContainers, recentShelves };
-      
       if (isDataTooLarge(dataToSave)) {
         alert('⚠️ 数据过大（超过 4.7MB）！\n请删除部分带图物品后再保存。');
         return false;
       }
-
-      localStorage.setItem('homeItems_v4', JSON.stringify(items));
+      localStorage.setItem('homeItems_v5', JSON.stringify(items)); // 升级版本号
       localStorage.setItem('recentRooms', JSON.stringify(recentRooms));
       localStorage.setItem('recentContainers', JSON.stringify(recentContainers));
       localStorage.setItem('recentShelves', JSON.stringify(recentShelves));
-
       renderFormOptions();
       renderItems();
       renderStats();
@@ -243,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return true;
     } catch (err) {
       if (err.name === 'QuotaExceededError') {
-        alert('⚠️ 浏览器存储空间不足！\n建议：\n1. 点击“清空所有数据”\n2. 重启浏览器\n3. 再导入小文件');
+        alert('⚠️ 浏览器存储空间不足！');
       } else {
         alert('❌ 保存失败：' + (err.message || err));
       }
@@ -257,7 +253,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const jsonString = JSON.stringify(dataToSave);
       const byteLength = new TextEncoder().encode(jsonString).length;
       const mb = (byteLength / 1024 / 1024).toFixed(2);
-      
       const warningEl = document.getElementById('storageWarning');
       if (byteLength > 4_000_000) {
         warningEl.innerHTML = `💡 当前数据大小约 ${mb} MB`;
@@ -271,54 +266,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function clearAllData() {
-    if (!confirm('⚠️ 警告：此操作将永久删除所有物品和设置！\n\n请确保已先导出备份。是否继续？')) {
-      return;
-    }
-
-    items = [];
-    recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
-    recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
-    recentShelves = ["上层","中层","下层","第一格","第二格"];
-
-    localStorage.removeItem('homeItems_v4');
+    if (!confirm('⚠️ 警告：此操作将永久删除所有物品和设置！\n\n请确保已先导出备份。是否继续？')) return;
+    items = []; recentRooms = [...]; recentContainers = [...]; recentShelves = [...];
+    localStorage.removeItem('homeItems_v5');
     localStorage.removeItem('recentRooms');
     localStorage.removeItem('recentContainers');
     localStorage.removeItem('recentShelves');
-
-    Object.keys(localStorage).forEach(key => {
-      if (/home|item|room|container|shelf/i.test(key)) {
-        localStorage.removeItem(key);
-      }
-    });
-
-    renderFormOptions();
-    renderItems();
-    updateStorageWarning();
+    renderFormOptions(); renderItems(); updateStorageWarning();
     alert('✅ 所有数据已清空！');
   }
 
   function safeImportData(data) {
     try {
-      items = [];
-      recentRooms = [];
-      recentContainers = [];
-      recentShelves = [];
-
-      if (data.items) items = data.items;
-      if (data.recentRooms) recentRooms = data.recentRooms;
-      if (data.recentContainers) recentContainers = data.recentContainers;
-      if (data.recentShelves) recentShelves = data.recentShelves;
-
-      if (!saveData()) {
-        throw new Error('数据过大，无法保存');
-      }
-
+      items = data.items || [];
+      recentRooms = data.recentRooms || recentRooms;
+      recentContainers = data.recentContainers || recentContainers;
+      recentShelves = data.recentShelves || recentShelves;
+      if (!saveData()) throw new Error('数据过大，无法保存');
       alert('✅ 安全导入成功！');
     } catch (err) {
-      items = [];
-      recentRooms = [];
-      recentContainers = [];
-      recentShelves = [];
+      items = []; recentRooms = [...]; recentContainers = [...]; recentShelves = [...];
       alert('❌ 导入失败：' + err.message);
     }
   }
@@ -378,7 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const code = jsQR(imageData.data, width, height);
           if (code) resolve(code.data.trim());
-          else reject(new Error('未检测到有效二维码，请确保图片清晰且仅含一个二维码'));
+          else reject(new Error('未检测到有效二维码'));
         } catch (err) {
           reject(new Error('二维码解析失败：' + (err.message || err)));
         }
@@ -453,6 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
     itemsList.innerHTML = filtered.length === 0
       ? '<p style="text-align:center;color:#888;">暂无物品</p>'
       : filtered.map(item => {
+          const qtyDisplay = item.quantity > 1 ? `<span class="quantity-badge">×${item.quantity}</span>` : '';
           let qrDisplay = '';
           if (item.qr_code) {
             const isUrl = /^https?:\/\//.test(item.qr_code);
@@ -469,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           return `
             <div class="item">
-              <strong>${item.name}</strong>
+              <strong>${item.name}</strong> ${qtyDisplay}
               ${item.category ? `<br><small>📂 ${item.category}</small>` : ''}
               <div class="location-path">${getLocationPath(item)}</div>
               ${item.specific_location ? `<div>${item.specific_location}</div>` : ''}
@@ -483,7 +451,10 @@ document.addEventListener('DOMContentLoaded', () => {
           `;
         }).join('');
 
+    // ✅ 更新总计数量
+    const totalQty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
     document.getElementById('totalItems').textContent = items.length;
+    document.getElementById('totalQuantity').textContent = totalQty;
   }
 
   window.editItem = function(id) {
@@ -491,6 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!item) return;
     document.getElementById('editId').value = item.id;
     document.getElementById('itemName').value = item.name;
+    document.getElementById('itemQuantity').value = item.quantity || 1; // ✅ 回填数量
     document.getElementById('itemCategory').value = item.category || '';
     document.getElementById('itemRoom').value = item.room;
     document.getElementById('itemContainer').value = item.container || '';
@@ -507,23 +479,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // ----------------------
-  // 保存按钮逻辑
-  // ----------------------
+  // 保存逻辑
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const itemName = document.getElementById('itemName');
     const itemRoom = document.getElementById('itemRoom');
     const name = itemName.value.trim();
     const room = itemRoom.value.trim();
+    const quantity = parseInt(document.getElementById('itemQuantity').value) || 1;
     if (!name || !room) {
       alert('请填写物品名称和房间');
+      return;
+    }
+    if (quantity < 1) {
+      alert('数量至少为1');
       return;
     }
 
     const MAX_QR_SIZE = 5 * 1024 * 1024;
     const itemQrCode = document.getElementById('itemQrCode');
     if (itemQrCode.files[0] && itemQrCode.files[0].size > MAX_QR_SIZE) {
-      alert('🏷️ 二维码图片过大（超过 5MB）\n\n💡 建议：\n• 截图只包含二维码区域\n• 用微信/QQ转发后保存（自动压缩）\n• 使用系统相册编辑裁剪');
+      alert('🏷️ 二维码图片过大（超过 5MB）');
       return;
     }
 
@@ -546,6 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newItem = {
         id: document.getElementById('editId').value || uuid(),
         name,
+        quantity, // ✅ 保存数量
         category: document.getElementById('itemCategory').value.trim() || null,
         room,
         container: document.getElementById('itemContainer').value.trim() || null,
@@ -588,6 +564,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetForm() {
     document.getElementById('editId').value = '';
     document.getElementById('itemName').value = '';
+    document.getElementById('itemQuantity').value = '1'; // ✅ 重置为1
     document.getElementById('itemCategory').value = '';
     document.getElementById('itemContainer').value = '';
     document.getElementById('itemShelf').value = '';
@@ -597,9 +574,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('saveBtn').textContent = '➕ 添加物品';
   }
 
-  // ----------------------
-  // 导出/导入/清空
-  // ----------------------
+  // 导出/导入/清空（不变）
   document.getElementById('exportBtn').addEventListener('click', () => {
     if (items.length === 0) return alert('没有物品可导出');
     const blob = new Blob([JSON.stringify({ items, recentRooms, recentContainers, recentShelves }, null, 2)], { type: 'application/json' });
@@ -628,9 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const data = JSON.parse(ev.target.result);
         if (!data.items) throw new Error('格式错误：缺少 items 字段');
-        
         if (!confirm(`将覆盖现有数据（共 ${data.items.length} 项），确定导入？`)) return;
-        
         safeImportData(data);
       } catch (err) {
         alert('导入失败：' + (err.message || '文件格式不正确'));
@@ -644,9 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('clearDataBtn').addEventListener('click', clearAllData);
 
-  // ----------------------
-  // 统计 & Tab
-  // ----------------------
+  // ✅ 统计图表：按数量聚合
   let roomChart, categoryChart, containerChart;
 
   function renderStats() {
@@ -655,17 +626,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx3 = document.getElementById('containerChart').getContext('2d');
 
     const roomCount = {};
-    items.forEach(i => { roomCount[i.room] = (roomCount[i.room] || 0) + 1; });
+    items.forEach(i => {
+      roomCount[i.room] = (roomCount[i.room] || 0) + (i.quantity || 1);
+    });
     const roomLabels = Object.keys(roomCount);
     const roomData = Object.values(roomCount);
 
     const catCount = {};
-    items.filter(i => i.category).forEach(i => { catCount[i.category] = (catCount[i.category] || 0) + 1; });
+    items.filter(i => i.category).forEach(i => {
+      catCount[i.category] = (catCount[i.category] || 0) + (i.quantity || 1);
+    });
     const catLabels = Object.keys(catCount);
     const catData = Object.values(catCount);
 
     const contCount = {};
-    items.filter(i => i.container).forEach(i => { contCount[i.container] = (contCount[i.container] || 0) + 1; });
+    items.filter(i => i.container).forEach(i => {
+      contCount[i.container] = (contCount[i.container] || 0) + (i.quantity || 1);
+    });
     const sortedCont = Object.entries(contCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const contLabels = sortedCont.map(x => x[0]);
     const contData = sortedCont.map(x => x[1]);
@@ -676,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     roomChart = new Chart(ctx1, {
       type: 'bar',
-      data: { labels: roomLabels, datasets: [{ label: '物品数量', data: roomData, backgroundColor: '#4A90E2' }] },
+      data: { labels: roomLabels, datasets: [{ label: '物品总数量', data: roomData, backgroundColor: '#4A90E2' }] },
       options: { responsive: true, plugins: { legend: { display: false } } }
     });
 
@@ -688,7 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     containerChart = new Chart(ctx3, {
       type: 'bar',
-      data: { labels: contLabels, datasets: [{ label: '物品数量', data: contData, backgroundColor: '#FF9F40' }] },
+      data: { labels: contLabels, datasets: [{ label: '物品总数量', data: contData, backgroundColor: '#FF9F40' }] },
       options: { responsive: true, plugins: { legend: { display: false } } }
     });
   }
@@ -713,12 +690,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ----------------------
   // 初始化
-  // ----------------------
   function loadDataFromStorage() {
     try {
-      const savedItems = localStorage.getItem('homeItems_v4');
+      const savedItems = localStorage.getItem('homeItems_v5'); // 注意版本号升级
       if (savedItems) items = JSON.parse(savedItems);
       const rooms = localStorage.getItem('recentRooms');
       if (rooms) recentRooms = JSON.parse(rooms);
@@ -737,7 +712,6 @@ document.addEventListener('DOMContentLoaded', () => {
   renderItems();
   updateStorageWarning();
 
-  // PWA 注册（可选）
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
