@@ -56,7 +56,7 @@
     .modal-buttons { display: flex; gap: 8px; margin-top: 12px; }
     .modal-buttons button { flex: 1; padding: 8px; font-size: 14px; }
 
-    canvas { display: none; }
+    canvas { display: block; margin: 20px auto; max-width: 100%; }
     #photoUploadArea {
       display: block;
       text-align: center;
@@ -152,8 +152,13 @@
 
 <!-- 统计面板 -->
 <div id="statsPanel" class="panel">
+  <h3 style="text-align:center;">按房间分布</h3>
   <canvas id="roomChart" height="200"></canvas>
+  
+  <h3 style="text-align:center;">按分类分布</h3>
   <canvas id="categoryChart" height="200"></canvas>
+  
+  <h3 style="text-align:center;">按容器分布</h3>
   <canvas id="containerChart" height="200"></canvas>
 </div>
 
@@ -177,10 +182,15 @@
 <script>
 // 全局变量
 let items = [];
-let recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
-let recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
+let recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库","储藏室"];
+let recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱","写字台"];
 let recentShelves = ["上层","中层","下层","第一格","第二格"];
 let currentModalType = '';
+
+// 图表实例（用于销毁）
+let roomChartInstance = null;
+let categoryChartInstance = null;
+let containerChartInstance = null;
 
 // 工具函数
 function isDataTooLarge(dataToSave, maxSizeBytes = 4_700_000) {
@@ -266,13 +276,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const categoryList = document.getElementById('categoryList');
     const shelfList = document.getElementById('shelfList');
 
-    // 清空
     itemRoom.innerHTML = '<option value="">请选择房间</option>';
     containerList.innerHTML = '';
     categoryList.innerHTML = '';
     shelfList.innerHTML = '';
 
-    // 房间下拉
     recentRooms.forEach(room => {
       const opt = document.createElement('option');
       opt.value = room;
@@ -280,26 +288,115 @@ document.addEventListener('DOMContentLoaded', async () => {
       itemRoom.appendChild(opt);
     });
 
-    // 容器 datalist
     recentContainers.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c;
       containerList.appendChild(opt);
     });
 
-    // 分类 datalist（去重）
     [...new Set(items.map(i => i.category).filter(Boolean))].forEach(cat => {
       const opt = document.createElement('option');
       opt.value = cat;
       categoryList.appendChild(opt);
     });
 
-    // 层格 datalist
     recentShelves.forEach(shelf => {
       const opt = document.createElement('option');
       opt.value = shelf;
       shelfList.appendChild(opt);
     });
+  }
+
+  // === 统计图表渲染 ===
+  function renderCharts() {
+    // 销毁旧图表
+    if (roomChartInstance) roomChartInstance.destroy();
+    if (categoryChartInstance) categoryChartInstance.destroy();
+    if (containerChartInstance) containerChartInstance.destroy();
+
+    // === 房间统计 ===
+    const roomMap = {};
+    items.forEach(item => {
+      roomMap[item.room] = (roomMap[item.room] || 0) + (item.quantity || 1);
+    });
+    const roomLabels = Object.keys(roomMap);
+    const roomData = Object.values(roomMap);
+
+    const roomCtx = document.getElementById('roomChart').getContext('2d');
+    roomChartInstance = new Chart(roomCtx, {
+      type: 'pie',
+      data: {
+        labels: roomLabels,
+        datasets: [{
+          data: roomData,
+          backgroundColor: [
+            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+            '#FF9F40', '#C9CBCF', '#FF6B6B', '#4ECDC4', '#FFE66D'
+          ].slice(0, roomLabels.length)
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    // === 分类统计 ===
+    const categoryMap = {};
+    items.filter(i => i.category).forEach(item => {
+      categoryMap[item.category] = (categoryMap[item.category] || 0) + (item.quantity || 1);
+    });
+    const categoryLabels = Object.keys(categoryMap);
+    const categoryData = Object.values(categoryMap);
+
+    if (categoryLabels.length > 0) {
+      const categoryCtx = document.getElementById('categoryChart').getContext('2d');
+      categoryChartInstance = new Chart(categoryCtx, {
+        type: 'doughnut',
+        data: {
+          labels: categoryLabels,
+          datasets: [{
+            data: categoryData,
+            backgroundColor: [
+              '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+              '#FF9F40', '#C9CBCF', '#FF6B6B', '#4ECDC4', '#FFE66D'
+            ].slice(0, categoryLabels.length)
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+      });
+    } else {
+      document.getElementById('categoryChart').getContext('2d').clearRect(0, 0, 300, 200);
+    }
+
+    // === 容器统计 ===
+    const containerMap = {};
+    items.filter(i => i.container).forEach(item => {
+      containerMap[item.container] = (containerMap[item.container] || 0) + (item.quantity || 1);
+    });
+    const containerLabels = Object.keys(containerMap);
+    const containerData = Object.values(containerMap);
+
+    if (containerLabels.length > 0) {
+      const containerCtx = document.getElementById('containerChart').getContext('2d');
+      containerChartInstance = new Chart(containerCtx, {
+        type: 'bar',
+        data: {
+          labels: containerLabels,
+          datasets: [{
+            label: '物品数量',
+            data: containerData,
+            backgroundColor: '#4A90E2'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0 } }
+          }
+        }
+      });
+    } else {
+      document.getElementById('containerChart').getContext('2d').clearRect(0, 0, 300, 200);
+    }
   }
 
   // === 保存数据 ===
@@ -315,10 +412,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       localStorage.setItem('recentContainers', JSON.stringify(recentContainers));
       localStorage.setItem('recentShelves', JSON.stringify(recentShelves));
       
-      renderFormOptions(); // ✅ 关键：确保下拉框更新
+      renderFormOptions();
       renderItems();
-      renderStats();
       updateStorageWarning();
+      // 注意：图表在切换到 stats 面板时才渲染（懒加载）
       return true;
     } catch (err) {
       if (err.name === 'QuotaExceededError') {
@@ -330,7 +427,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // === 更新存储警告 ===
   function updateStorageWarning() {
     const warningEl = document.getElementById('storageWarning');
     if (isDataTooLarge({ items, recentRooms, recentContainers, recentShelves })) {
@@ -341,7 +437,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // === 获取位置路径 ===
   function getLocationPath(item) {
     let path = item.room;
     if (item.container) path += ` > ${item.container}`;
@@ -349,7 +444,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return path;
   }
 
-  // === 渲染物品列表 ===
   function renderItems() {
     const searchInput = document.getElementById('searchInput');
     const itemsList = document.getElementById('itemsList');
@@ -398,19 +492,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const totalQty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
     document.getElementById('totalItems').textContent = items.length;
     document.getElementById('totalQuantity').textContent = totalQty;
-
-    // 动态绑定编辑/删除
-    document.querySelectorAll('.edit-btn').forEach(btn => {
-      btn.removeEventListener('click', handleEditClick);
-      btn.addEventListener('click', handleEditClick);
-    });
-    document.querySelectorAll('.delete-btn').forEach(btn => {
-      btn.removeEventListener('click', handleDeleteClick);
-      btn.addEventListener('click', handleDeleteClick);
-    });
   }
 
-  // === 编辑点击 ===
   function handleEditClick(e) {
     const itemDiv = e.target.closest('.item');
     const id = itemDiv.dataset.id;
@@ -421,7 +504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('itemName').value = item.name;
     document.getElementById('itemQuantity').value = item.quantity || 1;
     document.getElementById('itemCategory').value = item.category || '';
-    document.getElementById('itemRoom').value = item.room; // ✅ 确保 option 存在
+    document.getElementById('itemRoom').value = item.room;
     document.getElementById('itemContainer').value = item.container || '';
     document.getElementById('itemShelf').value = item.shelf_or_compartment || '';
     document.getElementById('itemLocation').value = item.specific_location || '';
@@ -429,7 +512,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.scrollTo(0, 0);
   }
 
-  // === 删除点击 ===
   function handleDeleteClick(e) {
     if (!confirm('确定删除此物品？')) return;
     const itemDiv = e.target.closest('.item');
@@ -438,7 +520,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveData();
   }
 
-  // === 模态框控制 ===
   function showAddModal(type) {
     currentModalType = type;
     document.getElementById('modalTitle').textContent = type === 'room' ? '新增房间' : '新增容器';
@@ -473,12 +554,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
     if (changed && saveData()) {
-      // saveData() 内部已调用 renderFormOptions()
+      // 下拉框已在 saveData 中更新
     }
     handleModalCancel();
   }
 
-  // === 表单提交 ===
   async function handleSave() {
     const name = document.getElementById('itemName').value.trim();
     const room = document.getElementById('itemRoom').value.trim();
@@ -517,7 +597,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const editId = document.getElementById('editId').value;
     if (editId) {
-      // 编辑
       const index = items.findIndex(i => i.id === editId);
       if (index >= 0) {
         items[index] = {
@@ -527,7 +606,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
       }
     } else {
-      // 新增
       items.push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         name, quantity, category, room, container, shelf_or_compartment: shelf,
@@ -554,7 +632,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('saveBtn').textContent = '➕ 添加物品';
   }
 
-  // === 其他功能 ===
   function exportData() {
     const dataStr = JSON.stringify({ items, recentRooms, recentContainers, recentShelves }, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
@@ -604,18 +681,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function renderStats() {
-    // 简化：仅更新数字，图表需 Chart.js（此处略，不影响核心功能）
-    const totalQty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
-    document.getElementById('totalItems').textContent = items.length;
-    document.getElementById('totalQuantity').textContent = totalQty;
-  }
-
   function switchTab(tabName) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
     document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
-    document.getElementById(`${tabName}Panel`).style.display = 'block';
+    const panel = document.getElementById(`${tabName}Panel`);
+    panel.style.display = 'block';
+
+    // 懒加载：仅在首次进入统计面板时渲染图表
+    if (tabName === 'stats' && !panel.dataset.rendered) {
+      renderCharts();
+      panel.dataset.rendered = 'true';
+    }
   }
 
   // === 事件绑定 ===
@@ -636,26 +713,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // ESC 关闭模态框
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && document.getElementById('customModal').style.display === 'flex') {
       handleModalCancel();
     }
   });
 
-  // 点击遮罩关闭
   document.getElementById('customModal').addEventListener('click', (e) => {
     if (e.target.id === 'customModal') handleModalCancel();
   });
 
-  // 照片上传点击
   document.getElementById('photoUploadArea').addEventListener('click', () => {
     document.getElementById('itemImage').click();
   });
 
   // 初始化
   loadDataFromStorage();
-  renderFormOptions(); // ✅ 确保下拉框有内容
+  renderFormOptions();
   renderItems();
   updateStorageWarning();
 
