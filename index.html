@@ -51,6 +51,10 @@
       font-size: 14px;
       margin-left: 8px;
     }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
     .item {
       background: white;
       border-radius: 12px;
@@ -80,6 +84,15 @@
     .tab.active { background: #4A90E2; color: white; }
     canvas { max-width: 100%; margin: 20px 0; }
     footer { text-align: center; padding: 16px; color: #888; font-size: 14px; }
+    .hint {
+      font-size: 13px;
+      color: #888;
+      margin-top: -6px;
+      margin-bottom: 8px;
+    }
+    .form-group {
+      margin: 8px 0;
+    }
   </style>
 </head>
 <body>
@@ -101,8 +114,12 @@
       <!-- 表单 -->
       <div id="itemForm">
         <input type="hidden" id="editId" />
-        <input type="text" id="itemName" placeholder="物品名称（必填）" />
-        <input type="text" id="itemCategory" placeholder="分类（如：厨房电器）" list="categoryList" />
+        <input type="text" id="itemName" placeholder="物品名称（必填）" required />
+
+        <div class="form-group">
+          <label for="itemCategory">分类（可选）</label>
+          <input type="text" id="itemCategory" list="categoryList" />
+        </div>
 
         <div style="display:flex;align-items:center;">
           <select id="itemRoom" style="flex:1;"></select>
@@ -119,8 +136,18 @@
         <input type="text" id="itemShelf" placeholder="层/格（如：上层、第二格）" list="shelfList" />
         <textarea id="itemLocation" placeholder="具体位置描述（如：左上角抽屉内）"></textarea>
 
-        <input type="file" id="itemImage" accept="image/*" capture="environment" />
-        <input type="file" id="itemQrCode" accept="image/*" placeholder="可选：上传二维码标签" />
+        <!-- 明确标注图片上传 -->
+        <div class="form-group">
+          <label for="itemImage">📸 物品照片（可选）</label>
+          <input type="file" id="itemImage" accept="image/*" capture="environment" />
+          <div class="hint">建议拍摄清晰正面照，便于识别</div>
+        </div>
+
+        <div class="form-group">
+          <label for="itemQrCode">🏷️ 二维码标签（可选）</label>
+          <input type="file" id="itemQrCode" accept="image/*" />
+          <div class="hint">用于快速扫码定位物品</div>
+        </div>
 
         <button id="saveBtn">➕ 添加物品</button>
       </div>
@@ -302,42 +329,44 @@
     }
 
     // ======================
-    // 保存（新增或更新）
+    // 保存（新增或更新）—— 核心修复点
     // ======================
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
       const name = itemName.value.trim();
       const room = itemRoom.value.trim();
       if (!name || !room) {
         alert('请填写物品名称和房间');
+        if (!name) itemName.focus();
+        else itemRoom.focus();
         return;
       }
 
-      const promises = [];
-      let imageBase64 = '';
-      let qrBase64 = '';
+      // 禁用按钮，防止重复提交
+      const originalText = saveBtn.textContent;
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ 保存中...';
 
-      if (itemImage.files[0]) {
-        promises.push(new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onload = e => {
-            imageBase64 = e.target.result;
-            resolve();
-          };
-          reader.readAsDataURL(itemImage.files[0]);
-        }));
-      }
-      if (itemQrCode.files[0]) {
-        promises.push(new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onload = e => {
-            qrBase64 = e.target.result;
-            resolve();
-          };
-          reader.readAsDataURL(itemQrCode.files[0]);
-        }));
-      }
+      try {
+        let imageBase64 = '';
+        let qrBase64 = '';
 
-      Promise.all(promises).then(() => {
+        // 读取图片（封装为函数避免重复）
+        const readFileAsDataURL = (file) => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('图片读取失败'));
+            reader.readAsDataURL(file);
+          });
+        };
+
+        if (itemImage.files[0]) {
+          imageBase64 = await readFileAsDataURL(itemImage.files[0]);
+        }
+        if (itemQrCode.files[0]) {
+          qrBase64 = await readFileAsDataURL(itemQrCode.files[0]);
+        }
+
         const newItem = {
           id: editId.value || uuid(),
           name,
@@ -352,10 +381,8 @@
         };
 
         if (editId.value) {
-          // Update
           items = items.map(i => i.id === editId.value ? newItem : i);
         } else {
-          // Add
           if (!recentRooms.includes(newItem.room)) recentRooms.unshift(newItem.room);
           if (newItem.container && !recentContainers.includes(newItem.container)) recentContainers.unshift(newItem.container);
           if (newItem.shelf_or_compartment && !recentShelves.includes(newItem.shelf_or_compartment)) recentShelves.unshift(newItem.shelf_or_compartment);
@@ -367,7 +394,14 @@
 
         resetForm();
         saveData();
-      });
+        alert(editId.value ? '✅ 修改成功！' : '✅ 添加成功！');
+      } catch (err) {
+        console.error(err);
+        alert('❌ 保存失败：' + (err.message || '未知错误，请重试'));
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+      }
     });
 
     function resetForm() {
