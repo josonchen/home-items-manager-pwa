@@ -14,6 +14,7 @@
     .panel { display: none; }
     #managePanel { display: block; }
     input, select, button, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+    label { display: block; font-weight: bold; margin-top: 12px; color: #444; }
     input[type="number"] { 
       -moz-appearance: textfield;
     }
@@ -89,27 +90,41 @@
 <div id="managePanel" class="panel">
   <div id="storageWarning"></div>
 
-  <input type="text" id="itemName" placeholder="物品名称（必填）" />
-  
-  <!-- ✅ 新增：数量输入 -->
-  <input type="number" id="itemQuantity" min="1" value="1" placeholder="数量（默认1）" />
+  <label for="itemName">物品名称（必填）</label>
+  <input type="text" id="itemName" placeholder="例如：螺丝刀、创可贴" />
 
-  <input type="text" id="itemCategory" placeholder="分类（如：工具、衣物、文件）" list="categoryList" />
+  <!-- ✅ 数量输入（带 label 和更好提示） -->
+  <label for="itemQuantity">数量（个）</label>
+  <input 
+    type="number" 
+    inputmode="numeric"
+    id="itemQuantity" 
+    min="1" 
+    value="1" 
+    placeholder="例如：1、5、100"
+  />
+
+  <label for="itemCategory">分类（可选）</label>
+  <input type="text" id="itemCategory" placeholder="如：工具、药品、文具" list="categoryList" />
   <datalist id="categoryList"></datalist>
 
+  <label for="itemRoom">所在房间（必填）</label>
   <select id="itemRoom">
     <option value="">请选择房间</option>
   </select>
   <button type="button" onclick="showAddModal('room')" style="margin-top:0;">➕ 新增房间</button>
 
-  <input type="text" id="itemContainer" placeholder="容器（如：衣柜、工具箱）" list="containerList" />
+  <label for="itemContainer">容器（可选）</label>
+  <input type="text" id="itemContainer" placeholder="如：工具箱、药盒" list="containerList" />
   <datalist id="containerList"></datalist>
   <button type="button" onclick="showAddModal('container')" style="margin-top:0;">➕ 新增容器</button>
 
-  <input type="text" id="itemShelf" placeholder="层/格（如：上层、第一格）" list="shelfList" />
+  <label for="itemShelf">层/格（可选）</label>
+  <input type="text" id="itemShelf" placeholder="如：上层、第一格" list="shelfList" />
   <datalist id="shelfList"></datalist>
 
-  <textarea id="itemLocation" placeholder="具体位置描述（可选）" rows="2"></textarea>
+  <label for="itemLocation">具体位置描述（可选）</label>
+  <textarea id="itemLocation" placeholder="例如：床头柜第二抽屉" rows="2"></textarea>
 
   <label for="itemImage" id="photoUploadArea">
     👆 点击选择照片或拍照
@@ -167,7 +182,7 @@ let recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
 let recentShelves = ["上层","中层","下层","第一格","第二格"];
 let currentModalType = '';
 
-// ===== Modal 控制（不变）=====
+// ===== Modal 控制 =====
 function showAddModal(type) {
   currentModalType = type;
   document.getElementById('modalTitle').textContent = type === 'room' ? '新增房间' : '新增容器';
@@ -185,16 +200,20 @@ function handleModalConfirm() {
     alert('名称不能为空');
     return;
   }
+  let changed = false;
   if (currentModalType === 'room') {
     if (!recentRooms.includes(value)) {
       recentRooms.unshift(value);
-      saveData();
+      changed = true;
     }
   } else if (currentModalType === 'container') {
     if (!recentContainers.includes(value)) {
       recentContainers.unshift(value);
-      saveData();
+      changed = true;
     }
+  }
+  if (changed) {
+    saveData(); // ✅ 关键修复：保存到 localStorage
   }
   handleModalCancel();
 }
@@ -210,7 +229,6 @@ document.getElementById('customModal').addEventListener('click', (e) => {
 // ===== 核心逻辑 =====
 document.addEventListener('DOMContentLoaded', () => {
 
-  // 工具函数
   function isDataTooLarge(dataToSave, maxSizeBytes = 4_700_000) {
     try {
       const jsonString = JSON.stringify(dataToSave);
@@ -228,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('⚠️ 数据过大（超过 4.7MB）！\n请删除部分带图物品后再保存。');
         return false;
       }
-      localStorage.setItem('homeItems_v5', JSON.stringify(items)); // 升级版本号
+      localStorage.setItem('homeItems_v5', JSON.stringify(items));
       localStorage.setItem('recentRooms', JSON.stringify(recentRooms));
       localStorage.setItem('recentContainers', JSON.stringify(recentContainers));
       localStorage.setItem('recentShelves', JSON.stringify(recentShelves));
@@ -267,12 +285,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearAllData() {
     if (!confirm('⚠️ 警告：此操作将永久删除所有物品和设置！\n\n请确保已先导出备份。是否继续？')) return;
-    items = []; recentRooms = [...]; recentContainers = [...]; recentShelves = [...];
+    items = []; 
+    recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
+    recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
+    recentShelves = ["上层","中层","下层","第一格","第二格"];
     localStorage.removeItem('homeItems_v5');
     localStorage.removeItem('recentRooms');
     localStorage.removeItem('recentContainers');
     localStorage.removeItem('recentShelves');
-    renderFormOptions(); renderItems(); updateStorageWarning();
+    renderFormOptions(); 
+    renderItems(); 
+    updateStorageWarning();
     alert('✅ 所有数据已清空！');
   }
 
@@ -285,7 +308,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!saveData()) throw new Error('数据过大，无法保存');
       alert('✅ 安全导入成功！');
     } catch (err) {
-      items = []; recentRooms = [...]; recentContainers = [...]; recentShelves = [...];
+      items = []; 
+      recentRooms = ["主卧","次卧","厨房","客厅","卫生间","阳台","车库"];
+      recentContainers = ["衣柜","抽屉","工具箱","书架","冰箱"];
+      recentShelves = ["上层","中层","下层","第一格","第二格"];
       alert('❌ 导入失败：' + err.message);
     }
   }
@@ -451,7 +477,6 @@ document.addEventListener('DOMContentLoaded', () => {
           `;
         }).join('');
 
-    // ✅ 更新总计数量
     const totalQty = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
     document.getElementById('totalItems').textContent = items.length;
     document.getElementById('totalQuantity').textContent = totalQty;
@@ -462,7 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!item) return;
     document.getElementById('editId').value = item.id;
     document.getElementById('itemName').value = item.name;
-    document.getElementById('itemQuantity').value = item.quantity || 1; // ✅ 回填数量
+    document.getElementById('itemQuantity').value = item.quantity || 1;
     document.getElementById('itemCategory').value = item.category || '';
     document.getElementById('itemRoom').value = item.room;
     document.getElementById('itemContainer').value = item.container || '';
@@ -479,19 +504,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // 保存逻辑
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const itemName = document.getElementById('itemName');
     const itemRoom = document.getElementById('itemRoom');
     const name = itemName.value.trim();
     const room = itemRoom.value.trim();
-    const quantity = parseInt(document.getElementById('itemQuantity').value) || 1;
+
+    // ✅ 强化数量校验
+    let quantityStr = document.getElementById('itemQuantity').value.trim();
+    let quantity = 1;
+    if (quantityStr !== '') {
+      const parsed = parseInt(quantityStr, 10);
+      if (isNaN(parsed) || parsed < 1) {
+        alert('数量必须是大于等于1的整数');
+        return;
+      }
+      quantity = parsed;
+    }
+
     if (!name || !room) {
       alert('请填写物品名称和房间');
-      return;
-    }
-    if (quantity < 1) {
-      alert('数量至少为1');
       return;
     }
 
@@ -521,7 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const newItem = {
         id: document.getElementById('editId').value || uuid(),
         name,
-        quantity, // ✅ 保存数量
+        quantity,
         category: document.getElementById('itemCategory').value.trim() || null,
         room,
         container: document.getElementById('itemContainer').value.trim() || null,
@@ -564,7 +596,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetForm() {
     document.getElementById('editId').value = '';
     document.getElementById('itemName').value = '';
-    document.getElementById('itemQuantity').value = '1'; // ✅ 重置为1
+    document.getElementById('itemQuantity').value = '1';
     document.getElementById('itemCategory').value = '';
     document.getElementById('itemContainer').value = '';
     document.getElementById('itemShelf').value = '';
@@ -574,7 +606,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('saveBtn').textContent = '➕ 添加物品';
   }
 
-  // 导出/导入/清空（不变）
   document.getElementById('exportBtn').addEventListener('click', () => {
     if (items.length === 0) return alert('没有物品可导出');
     const blob = new Blob([JSON.stringify({ items, recentRooms, recentContainers, recentShelves }, null, 2)], { type: 'application/json' });
@@ -617,7 +648,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('clearDataBtn').addEventListener('click', clearAllData);
 
-  // ✅ 统计图表：按数量聚合
   let roomChart, categoryChart, containerChart;
 
   function renderStats() {
@@ -690,10 +720,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 初始化
   function loadDataFromStorage() {
     try {
-      const savedItems = localStorage.getItem('homeItems_v5'); // 注意版本号升级
+      const savedItems = localStorage.getItem('homeItems_v5');
       if (savedItems) items = JSON.parse(savedItems);
       const rooms = localStorage.getItem('recentRooms');
       if (rooms) recentRooms = JSON.parse(rooms);
