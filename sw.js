@@ -1,28 +1,24 @@
-const CACHE_NAME = 'home-items-v6-ocr-idb';
+const CACHE_NAME = 'home-items-v7-cropper';
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
   'https://cdn.jsdelivr.net/npm/chart.js',
-  // 新增：Tesseract 核心库
   'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js',
-  // 注意：Tesseract 在运行时会动态请求 worker.min.js 和 中文语言包
-  // 如果要完全离线 OCR，需要用户在联网时使用过一次 OCR 功能，
-  // 浏览器会自动将这些动态请求缓存到默认的 Cache Storage 中。
+  'https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.css',
+  'https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.js'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
   );
   self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => response || fetch(event.request))
+    caches.match(event.request).then((response) => response || fetch(event.request))
   );
 });
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>🏠 家庭物品管理系统</title>
   <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.css">
   <style>
     /* === 基础重置 === */
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -99,7 +100,7 @@
     /* === 统计图表 === */
     .chart-container { position: relative; height: 220px; margin: 20px 0; width: 100%; background: #fff; padding: 10px; border-radius: 12px; }
 
-    /* === Modal === */
+    /* === Modal (通用) === */
     #customModal {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.4); z-index: 1000; align-items: center; justify-content: center;
@@ -109,11 +110,22 @@
     #modalTitle { font-weight: 600; font-size: 18px; margin-bottom: 16px; text-align: center; }
     .modal-buttons { display: flex; gap: 12px; margin-top: 20px; }
     
+    /* === 裁剪 Modal 专用 === */
+    #cropModal {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: #000; z-index: 3000; flex-direction: column;
+    }
+    .crop-container { flex: 1; position: relative; overflow: hidden; }
+    .crop-toolbar { 
+      height: 80px; background: #1c1c1e; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; 
+    }
+    .crop-toolbar button { width: auto; margin: 0; padding: 8px 16px; font-size: 14px; }
+
     /* Loading 遮罩 */
     #loadingMask {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(255,255,255,0.8); z-index: 2000; 
-      flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.9); z-index: 4000; 
+      flex-direction: column; align-items: center; justify-content: center; text-align: center;
     }
     .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007aff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;}
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -133,11 +145,13 @@
   <label>物品基本信息</label>
   <div class="input-group">
     <button type="button" id="ocrBtn">📷 拍字</button>
-    <input type="text" id="itemName" placeholder="物品名称 (可拍照识别)" />
+    <input type="text" id="itemName" placeholder="物品名称" />
     <input type="number" id="itemQuantity" style="width: 70px; flex:none;" placeholder="数量" value="1" min="1" inputmode="numeric" />
   </div>
-  <div style="font-size:12px; color:#888; margin-top:4px;">💡 点击“拍字”拍摄包装盒文字，自动填入名称</div>
-  <input type="file" id="ocrInput" accept="image/*" style="display:none;" />
+  <div style="font-size:12px; color:#666; margin-top:4px; line-height:1.4;">
+    💡 技巧：点击“拍字”后，拖动选框只框选<strong>核心汉字</strong>，识别更精准。
+  </div>
+  <input type="file" id="ocrInput" accept="image/*" capture="environment" style="display:none;" />
 
   <label>存放位置</label>
   <div class="input-group">
@@ -205,6 +219,17 @@
   </div>
 </div>
 
+<div id="cropModal">
+  <div class="crop-container">
+    <img id="cropImage" src="" style="max-width: 100%;" />
+  </div>
+  <div class="crop-toolbar">
+    <button id="cancelCropBtn" style="background:#333;">取消</button>
+    <div style="color:white; font-size:12px;">请框选文字区域</div>
+    <button id="confirmCropBtn" style="background:#34c759;">✅ 识别</button>
+  </div>
+</div>
+
 <div id="loadingMask">
   <div class="spinner"></div>
   <div id="loadingText">处理中...</div>
@@ -212,6 +237,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.js"></script>
 
 <script>
 // === Service Worker 注册 ===
@@ -221,7 +247,7 @@ if ('serviceWorker' in navigator) {
     .catch(err => console.log('SW Failed', err));
 }
 
-// === IndexedDB 封装 (解决存储满问题) ===
+// === IndexedDB 封装 ===
 const DB_NAME = 'HomeItemsDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'items';
@@ -293,40 +319,36 @@ let userSelectedNewImage = false;
 let pendingItemImageBase64 = '';
 let isImageProcessing = false;
 
+// 裁剪器实例
+let cropper = null; 
+
 // === 核心功能 ===
 
-// 1. 数据加载与迁移 (LocalStorage -> IndexedDB)
+// 1. 数据加载与迁移
 async function loadData() {
   showLoading('加载数据...');
   try {
-    // 加载辅助配置 (仍保留在 LocalStorage)
     if(localStorage.getItem('recentRooms')) recentRooms = JSON.parse(localStorage.getItem('recentRooms'));
     if(localStorage.getItem('recentContainers')) recentContainers = JSON.parse(localStorage.getItem('recentContainers'));
     if(localStorage.getItem('recentShelves')) recentShelves = JSON.parse(localStorage.getItem('recentShelves'));
 
-    // 尝试从 IndexedDB 加载物品
     items = await db.getAll();
 
-    // ⬇️ 迁移逻辑：如果 IDB 为空，但 LocalStorage 有数据，则迁移
     if (items.length === 0) {
       const oldData = localStorage.getItem('homeItems_v5');
       if (oldData) {
-        console.log('检测到旧数据，正在迁移到 IndexedDB...');
         const oldItems = JSON.parse(oldData);
         if (Array.isArray(oldItems) && oldItems.length > 0) {
           for (const item of oldItems) {
             await db.put(item);
           }
           items = oldItems;
-          // 迁移成功后清除旧数据，释放 LocalStorage
           localStorage.removeItem('homeItems_v5'); 
-          alert('🎉 系统升级成功！数据已迁移至大容量存储库。');
         }
       }
     }
   } catch (e) {
     console.error('加载失败', e);
-    alert('数据加载出错，请联系开发者');
   } finally {
     hideLoading();
     renderItems();
@@ -358,8 +380,6 @@ function renderOptions(currentItem = null) {
 function renderItems() {
   const term = document.getElementById('searchInput').value.trim().toLowerCase();
   const listEl = document.getElementById('itemsList');
-  
-  // 按照修改时间倒序排列 (可选)
   const sortedItems = [...items].reverse();
 
   const filtered = sortedItems.filter(item => {
@@ -416,7 +436,6 @@ window.viewImage = (id) => {
   }
 };
 
-// 4. 图片压缩
 function compressImage(file) {
   return new Promise(resolve => {
     const reader = new FileReader();
@@ -428,7 +447,6 @@ function compressImage(file) {
         const maxWidth = 800; 
         let w = img.width, h = img.height;
         if (w > maxWidth) { h = (h * maxWidth) / w; w = maxWidth; }
-        
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d');
@@ -439,40 +457,85 @@ function compressImage(file) {
   });
 }
 
-// === OCR 文字识别逻辑 ===
+// === OCR 拍字识别 (新流程：拍照 -> 裁剪 -> 识别) ===
+
+// 1. 点击按钮触发拍照
 document.getElementById('ocrBtn').addEventListener('click', () => {
   document.getElementById('ocrInput').click();
 });
 
-document.getElementById('ocrInput').addEventListener('change', async (e) => {
+// 2. 照片选定后，显示裁剪 Modal
+document.getElementById('ocrInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  showLoading('正在识别文字...\n首次可能较慢');
-  
-  try {
-    // 识别中英文
-    const worker = await Tesseract.createWorker('chi_sim+eng');
-    const ret = await worker.recognize(file);
-    await worker.terminate();
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const imgElement = document.getElementById('cropImage');
+    imgElement.src = evt.target.result;
+    
+    document.getElementById('cropModal').style.display = 'flex';
 
-    const text = ret.data.text.replace(/\s+/g, ' ').trim();
-    if (text) {
-      // 简单截取前20个字符防止识别大段文字
-      const cleanText = text.substring(0, 30); 
-      document.getElementById('itemName').value = cleanText;
-    } else {
-      alert('未识别到明显文字，请重试');
-    }
-  } catch (err) {
-    console.error(err);
-    alert('识别失败，请检查网络或重试');
-  } finally {
-    hideLoading();
-    document.getElementById('ocrInput').value = ''; // 重置以便再次触发
-  }
+    // 初始化裁剪器
+    if (cropper) { cropper.destroy(); }
+    cropper = new Cropper(imgElement, {
+      viewMode: 1, // 限制裁剪框不超过画布
+      dragMode: 'move', // 可以拖动图片
+      autoCropArea: 0.6, // 默认裁剪框大小
+      ready() {
+        // 准备好了
+      }
+    });
+  };
+  reader.readAsDataURL(file);
+  e.target.value = ''; // 重置 input
 });
 
+// 3. 取消裁剪
+document.getElementById('cancelCropBtn').addEventListener('click', () => {
+  document.getElementById('cropModal').style.display = 'none';
+  if (cropper) cropper.destroy();
+});
+
+// 4. 确认裁剪并开始识别
+document.getElementById('confirmCropBtn').addEventListener('click', async () => {
+  if (!cropper) return;
+  
+  // 获取裁剪后的 Canvas
+  const canvas = cropper.getCroppedCanvas();
+  const croppedImageBase64 = canvas.toDataURL('image/png');
+  
+  // 关闭 Modal
+  document.getElementById('cropModal').style.display = 'none';
+  if (cropper) cropper.destroy();
+
+  showLoading('正在下载中文库并识别...\n首次较慢，请保持网络');
+
+  try {
+    // 创建 Tesseract Worker (强制使用中文+英文)
+    const worker = await Tesseract.createWorker('chi_sim+eng');
+    
+    // 识别裁剪后的图片
+    const ret = await worker.recognize(croppedImageBase64);
+    await worker.terminate();
+
+    const text = ret.data.text.replace(/\s+/g, '').trim(); // 去除所有空格
+    
+    if (text) {
+      document.getElementById('itemName').value = text;
+      // 自动复制到剪贴板 (可选)
+      // navigator.clipboard.writeText(text).catch(() => {});
+    } else {
+      alert('未识别到文字，请确保文字清晰且在框内');
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert('识别失败：' + (err.message || '网络错误'));
+  } finally {
+    hideLoading();
+  }
+});
 
 // === 保存/编辑/删除 ===
 document.getElementById('saveBtn').addEventListener('click', async () => {
@@ -504,14 +567,11 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     category: document.getElementById('itemCategory').value.trim(),
     specific_location: document.getElementById('itemLocation').value.trim(),
     image: finalImage,
-    updatedAt: Date.now() // 记录时间
+    updatedAt: Date.now()
   };
 
-  // 保存到 IndexedDB
   try {
     await db.put(newItem);
-    
-    // 更新内存中的数组
     if (editId) {
       const idx = items.findIndex(i => i.id === editId);
       if (idx > -1) items[idx] = newItem;
@@ -519,7 +579,6 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       items.push(newItem);
     }
     
-    // 保存辅助配置到 LocalStorage (轻量数据)
     localStorage.setItem('recentRooms', JSON.stringify(recentRooms));
     localStorage.setItem('recentContainers', JSON.stringify(recentContainers));
     localStorage.setItem('recentShelves', JSON.stringify(recentShelves));
@@ -533,7 +592,6 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   }
 });
 
-// 列表点击代理
 document.getElementById('itemsList').addEventListener('click', async (e) => {
   if (e.target.classList.contains('edit-btn')) {
     const id = e.target.closest('.item').dataset.id;
@@ -583,7 +641,6 @@ document.getElementById('itemsList').addEventListener('click', async (e) => {
   }
 });
 
-// 图片选择监听
 document.getElementById('itemImage').addEventListener('change', async function(e) {
   const file = e.target.files[0];
   const prev = document.getElementById('photoPreviewInForm');
@@ -610,7 +667,6 @@ document.getElementById('itemImage').addEventListener('change', async function(e
   }
 });
 
-// 辅助功能
 function resetForm() {
   document.getElementById('editId').value = '';
   document.getElementById('itemName').value = '';
@@ -631,14 +687,13 @@ function resetForm() {
 }
 
 function showLoading(text) {
-  document.getElementById('loadingText').textContent = text;
+  document.getElementById('loadingText').innerText = text; // 支持换行
   document.getElementById('loadingMask').style.display = 'flex';
 }
 function hideLoading() {
   document.getElementById('loadingMask').style.display = 'none';
 }
 
-// Modal 逻辑
 let modalType = '';
 document.getElementById('addRoomBtn').onclick = () => showModal('room');
 document.getElementById('addContainerBtn').onclick = () => showModal('container');
@@ -667,7 +722,6 @@ document.getElementById('modalCancelBtn').onclick = () => {
   document.getElementById('customModal').style.display = 'none';
 };
 
-// 导出功能
 document.getElementById('exportBtn').onclick = () => {
   const blob = new Blob([JSON.stringify({items, recentRooms, recentContainers, recentShelves},null,2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -676,7 +730,6 @@ document.getElementById('exportBtn').onclick = () => {
   a.click();
 };
 
-// 导入功能
 document.getElementById('importBtn').onclick = () => {
   const input = document.createElement('input');
   input.type = 'file';
@@ -686,7 +739,6 @@ document.getElementById('importBtn').onclick = () => {
     try {
       const data = JSON.parse(text);
       if(data.items) {
-        // 清空现有库并写入新数据
         await db.clear();
         for (const item of data.items) {
           await db.put(item);
@@ -695,7 +747,7 @@ document.getElementById('importBtn').onclick = () => {
       if(data.recentRooms) localStorage.setItem('recentRooms', JSON.stringify(data.recentRooms));
       if(data.recentContainers) localStorage.setItem('recentContainers', JSON.stringify(data.recentContainers));
       
-      await loadData(); // 重新加载
+      await loadData();
       alert('✅ 导入成功');
     } catch(err) { alert('❌ 格式错误'); }
     finally { hideLoading(); }
@@ -711,7 +763,6 @@ document.getElementById('clearDataBtn').onclick = async () => {
   }
 };
 
-// Tab 切换
 document.querySelectorAll('.tab').forEach(t => t.onclick = function() {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
   this.classList.add('active');
@@ -720,7 +771,6 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = function() {
   if (this.dataset.tab === 'stats') renderCharts();
 });
 
-// 图表渲染
 function renderCharts() {
   const ctx1 = document.getElementById('roomChart').getContext('2d');
   const ctx2 = document.getElementById('categoryChart').getContext('2d');
@@ -739,7 +789,6 @@ function renderCharts() {
   containerChartInstance = new Chart(ctx3, { type: 'bar', data: { labels: Object.keys(contData).slice(0,8), datasets: [{ label: '数量', data: Object.values(contData).slice(0,8), backgroundColor: '#007aff' }] }, options: { maintainAspectRatio:false } });
 }
 
-// 初始化
 document.addEventListener('DOMContentLoaded', () => {
   loadData();
   document.getElementById('photoUploadArea').addEventListener('click', () => {
