@@ -1,4 +1,4 @@
-const CACHE_NAME = 'home-items-v7.01-cropper';
+const CACHE_NAME = 'home-items-v7.02-cropper';
 const urlsToCache = [
   './',
   './index.html',

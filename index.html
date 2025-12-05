@@ -41,8 +41,8 @@
     button.warning { background: #ff9500; color: white; }
     
     .input-group { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-    .input-group input, .input-group select { flex: 1; margin: 0; } /* 修正 margin */
-    .input-group button { width: auto; margin: 0; padding: 12px 16px; white-space: nowrap; height: 46px; } /* 固定高度对齐 */
+    .input-group input, .input-group select { flex: 1; margin: 0; }
+    .input-group button { width: auto; margin: 0; padding: 12px 16px; white-space: nowrap; height: 46px; }
 
     #ocrBtn { background: #34c759; color: white; }
 
@@ -120,7 +120,7 @@
 </head>
 <body>
 
-<h1>🏠 家庭物品管理25</h1>
+<h1>🏠 家庭物品管理v702</h1>
 
 <div class="tab-bar">
   <div class="tab active" data-tab="manage">➕ 添加</div>
@@ -237,21 +237,58 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Fail', err));
 }
 
-// === IndexedDB ===
+// === IndexedDB (已修复错误处理) ===
 const DB_NAME = 'HomeItemsDB';
-const DB_VERSION = 1;
+//或者修改代码顶部的 const DB_VERSION = 1; 改为 const DB_VERSION = 2;，这会强制浏览器升级数据库结构。
+const DB_VERSION = 1.02;
 const STORE_NAME = 'items';
 const db = {
   open: () => new Promise((resolve, reject) => {
     const r = indexedDB.open(DB_NAME, DB_VERSION);
     r.onupgradeneeded = e => { if(!e.target.result.objectStoreNames.contains(STORE_NAME)) e.target.result.createObjectStore(STORE_NAME, { keyPath: 'id' }); };
     r.onsuccess = e => resolve(e.target.result);
-    r.onerror = e => reject(e);
+    r.onerror = e => reject(e.target.error); // Fix: return detailed error
   }),
-  getAll: async () => { const d = await db.open(); return new Promise((resolve) => { d.transaction(STORE_NAME,'readonly').objectStore(STORE_NAME).getAll().onsuccess = e => resolve(e.target.result||[]); }); },
-  put: async (item) => { const d = await db.open(); return new Promise((resolve) => { d.transaction(STORE_NAME,'readwrite').objectStore(STORE_NAME).put(item).onsuccess = resolve; }); },
-  delete: async (id) => { const d = await db.open(); return new Promise((resolve) => { d.transaction(STORE_NAME,'readwrite').objectStore(STORE_NAME).delete(id).onsuccess = resolve; }); },
-  clear: async () => { const d = await db.open(); return new Promise((resolve) => { d.transaction(STORE_NAME,'readwrite').objectStore(STORE_NAME).clear().onsuccess = resolve; }); }
+  getAll: async () => { 
+    try {
+      const d = await db.open(); 
+      return new Promise((resolve, reject) => { 
+        const req = d.transaction(STORE_NAME,'readonly').objectStore(STORE_NAME).getAll();
+        req.onsuccess = e => resolve(e.target.result||[]);
+        req.onerror = e => reject(e.target.error);
+      }); 
+    } catch(e) { throw e; }
+  },
+  put: async (item) => { 
+    try {
+      const d = await db.open(); 
+      return new Promise((resolve, reject) => { 
+        const req = d.transaction(STORE_NAME,'readwrite').objectStore(STORE_NAME).put(item);
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
+      }); 
+    } catch(e) { throw e; }
+  },
+  delete: async (id) => { 
+    try {
+      const d = await db.open(); 
+      return new Promise((resolve, reject) => { 
+        const req = d.transaction(STORE_NAME,'readwrite').objectStore(STORE_NAME).delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
+      }); 
+    } catch(e) { throw e; }
+  },
+  clear: async () => { 
+    try {
+      const d = await db.open(); 
+      return new Promise((resolve, reject) => { 
+        const req = d.transaction(STORE_NAME,'readwrite').objectStore(STORE_NAME).clear();
+        req.onsuccess = () => resolve();
+        req.onerror = e => reject(e.target.error);
+      }); 
+    } catch(e) { throw e; }
+  }
 };
 
 // === 全局变量 ===
@@ -273,8 +310,7 @@ function switchTab(tabName) {
   document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
   document.getElementById(tabName + 'Panel').style.display = 'block';
   
-  // 切换到 Tab 时的特殊处理
-  if (tabName === 'list') renderItems(); // 确保列表最新
+  if (tabName === 'list') renderItems(); 
   if (tabName === 'stats') renderCharts();
 }
 
@@ -295,7 +331,6 @@ async function loadData() {
     hideLoading(); 
     renderItems(); 
     renderOptions(); 
-    // 默认显示清单还是添加? 根据习惯，此处默认显示"添加"
   }
 }
 
@@ -313,12 +348,10 @@ function renderItems() {
   const sortType = document.getElementById('sortSelect').value;
   const listEl = document.getElementById('itemsList');
 
-  // 1. 过滤
   let filtered = items.filter(item => {
     return `${item.name} ${item.room} ${item.container||''} ${item.shelf||''} ${item.specific_location||''}`.toLowerCase().includes(term);
   });
 
-  // 2. 排序
   filtered.sort((a, b) => {
     const timeA = a.updatedAt || 0;
     const timeB = b.updatedAt || 0;
@@ -334,7 +367,6 @@ function renderItems() {
     }
   });
 
-  // 3. 渲染
   listEl.innerHTML = filtered.length === 0 ? '<div style="text-align:center;padding:40px;color:#ccc;">暂无匹配物品</div>' : filtered.map(item => `
     <div class="item" data-id="${item.id}">
       <div class="item-header"><span class="item-name">${item.name}</span>${item.quantity>1?`<span class="quantity-badge">×${item.quantity}</span>`:''}</div>
@@ -354,7 +386,6 @@ function renderItems() {
   document.getElementById('totalQuantity').textContent = items.reduce((a,b)=>a+(parseInt(b.quantity)||1),0);
 }
 
-// 监听搜索和排序
 document.getElementById('searchInput').addEventListener('input', renderItems);
 document.getElementById('sortSelect').addEventListener('change', renderItems);
 
@@ -363,7 +394,7 @@ window.viewImage = (id) => {
   if(item?.image) { const w = window.open(""); w.document.write(`<img src="${item.image}" style="width:100%;"/>`); }
 };
 
-// === 图片选择与裁剪逻辑 ===
+// === 图片选择与裁剪 ===
 const fileInput = document.getElementById('fileInput');
 
 document.getElementById('ocrBtn').onclick = () => { currentCropAction = 'ocr'; fileInput.click(); };
@@ -381,12 +412,7 @@ fileInput.onchange = (e) => {
     document.getElementById('confirmCropBtn').innerText = currentCropAction === 'ocr' ? '识别' : '确认使用';
     
     if(cropper) cropper.destroy();
-    cropper = new Cropper(img, {
-      viewMode: 1, 
-      dragMode: 'move', 
-      autoCropArea: 0.8,
-      initialAspectRatio: NaN 
-    });
+    cropper = new Cropper(img, { viewMode: 1, dragMode: 'move', autoCropArea: 0.8, initialAspectRatio: NaN });
   };
   reader.readAsDataURL(file);
   fileInput.value = ''; 
@@ -414,7 +440,7 @@ document.getElementById('confirmCropBtn').onclick = async () => {
   }
 };
 
-// === OCR 逻辑 (带二值化) ===
+// === OCR (二值化增强) ===
 async function performOCR(canvas) {
   showLoading('正在增强图像并识别...');
   try {
@@ -434,20 +460,12 @@ async function performOCR(canvas) {
     await worker.terminate();
 
     const text = ret.data.text.replace(/\s+/g, '').trim();
-    if(text) {
-      document.getElementById('itemName').value = text;
-    } else {
-      alert('未识别到清晰文字，请重试');
-    }
-  } catch (err) {
-    console.error(err);
-    alert('识别失败: ' + err.message);
-  } finally {
-    hideLoading();
-  }
+    if(text) document.getElementById('itemName').value = text;
+    else alert('未识别到清晰文字，请重试');
+  } catch (err) { alert('识别失败: ' + err.message); } finally { hideLoading(); }
 }
 
-// === 保存逻辑 ===
+// === 保存逻辑 (已修复 Error 捕获) ===
 document.getElementById('saveBtn').onclick = async () => {
   const name = document.getElementById('itemName').value.trim();
   const room = document.getElementById('itemRoom').value;
@@ -455,7 +473,6 @@ document.getElementById('saveBtn').onclick = async () => {
 
   const editId = document.getElementById('editId').value;
   const oldItem = editId ? items.find(i=>i.id===editId) : null;
-  
   let img = userSelectedNewImage ? pendingItemImageBase64 : (oldItem?.image || '');
 
   const item = {
@@ -483,9 +500,11 @@ document.getElementById('saveBtn').onclick = async () => {
     localStorage.setItem('recentShelves', JSON.stringify(recentShelves));
 
     resetForm(); 
-    // 保存后留在添加页，还是跳转清单? 通常添加为了连续录入，故留在添加页，但给出反馈
     alert(editId ? '修改成功' : '添加成功');
-  } catch(e) { alert('保存失败:'+e.message); }
+  } catch(e) { 
+    console.error(e);
+    alert('保存失败: ' + (e.message || '未知错误')); 
+  }
 };
 
 // === 列表交互 ===
@@ -500,7 +519,6 @@ document.getElementById('itemsList').onclick = async (e) => {
     const item = items.find(i=>i.id===id);
     if(!item) return;
     
-    // 填充表单
     document.getElementById('editId').value = item.id;
     document.getElementById('itemName').value = item.name;
     document.getElementById('itemQuantity').value = item.quantity;
@@ -518,9 +536,7 @@ document.getElementById('itemsList').onclick = async (e) => {
     
     userSelectedNewImage = false; pendingItemImageBase64 = '';
     document.getElementById('saveBtn').textContent = '💾 保存修改';
-    
-    // 切换到管理面板
-    switchTab('manage');
+    switchTab('manage'); // 跳回编辑页
     window.scrollTo({top:0, behavior:'smooth'});
   }
 };
@@ -537,7 +553,6 @@ function resetForm() {
 function showLoading(txt) { document.getElementById('loadingText').innerText = txt; document.getElementById('loadingMask').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loadingMask').style.display = 'none'; }
 
-// 模态框逻辑
 let modalType = '';
 const showModal = (t) => { modalType=t; document.getElementById('modalTitle').innerText=t==='room'?'新增房间':'新增容器'; document.getElementById('customModal').style.display='flex'; document.getElementById('modalInput').focus(); };
 document.getElementById('addRoomBtn').onclick=()=>showModal('room'); document.getElementById('addContainerBtn').onclick=()=>showModal('container');
@@ -554,7 +569,6 @@ document.getElementById('modalConfirmBtn').onclick=()=>{
   document.getElementById('customModal').style.display='none'; document.getElementById('modalInput').value='';
 };
 
-// 导出导入
 document.getElementById('exportBtn').onclick = () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify({items, recentRooms, recentContainers, recentShelves},null,2)], {type:'application/json'}));
   const a = document.createElement('a'); a.href=url; a.download=`备份_${new Date().toISOString().slice(0,10)}.json`; a.click();
@@ -575,10 +589,7 @@ document.getElementById('importBtn').onclick = () => {
 };
 document.getElementById('clearDataBtn').onclick = async () => { if(confirm('确定清空?')) { await db.clear(); items=[]; renderItems(); } };
 
-// Tab 点击事件
-document.querySelectorAll('.tab').forEach(t => t.onclick = function() {
-  switchTab(this.dataset.tab);
-});
+document.querySelectorAll('.tab').forEach(t => t.onclick = function() { switchTab(this.dataset.tab); });
 
 function renderCharts() {
   const ctx1 = document.getElementById('roomChart').getContext('2d');
